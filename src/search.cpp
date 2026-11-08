@@ -83,6 +83,26 @@ const std::array<int, MAX_MOVES> reductions = [] {
     return table;
 }();
 
+// Whether the side to move can win at least a knight minus a pawn with one
+// capture: a non-pawn piece of theirs that we attack and they don't defend, or
+// that our pawn attacks, or their queen attacked by our minor piece or rook.
+bool has_winning_capture(const Position& pos) {
+    const Color us = pos.side_to_move();
+
+    for (Bitboard b = pos.pieces(~us) & ~pos.pieces(PAWN, KING); b;)
+    {
+        const Square   s         = pop_lsb(b);
+        const Bitboard attackers = pos.attackers_to(s);
+        const Bitboard ours      = attackers & pos.pieces(us);
+
+        if (ours
+            && (!(attackers & pos.pieces(~us)) || (ours & pos.pieces(PAWN))
+                || (type_of(pos.piece_on(s)) == QUEEN && (ours & ~pos.pieces(QUEEN, KING)))))
+            return true;
+    }
+    return false;
+}
+
 // (*Scalers):
 // The values with Scaler asterisks have proven non-linear scaling.
 // They are optimized to time controls of 180 + 1.8 and longer,
@@ -1035,7 +1055,10 @@ Value Search::Worker::search(
                              - (2789 * improving + 335 * opponentWorsening) * futilityMult / 1024
                              + std::abs(correctionValue) / 198435;
 
-        if (eval - futilityMargin >= beta)
+        // With a winning capture available, a third of the depth term can go
+        if (eval - futilityMargin >= beta
+            || (eval - futilityMargin + futilityMult * depth / 3 >= beta
+                && has_winning_capture(pos)))
             return (661 * beta + 363 * eval) / 1024;
     }
 
