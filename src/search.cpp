@@ -1675,13 +1675,24 @@ moves_loop:  // When in check, search starts here
 
     // Adjust correction history if the best move is not a capture and
     // the error direction matches whether we are above/below bounds.
-    if (!ss->inCheck && !(bestMove && pos.capture(bestMove))
-        && (bestValue > ss->staticEval) == bool(bestMove))
+    if (!ss->inCheck && !(bestMove && pos.capture(bestMove)))
     {
-        auto bonus =
-          std::clamp(int(bestValue - ss->staticEval) * depth * (bestMove ? 12 : 18) / 128,
-                     -CORRECTION_HISTORY_LIMIT / 4, CORRECTION_HISTORY_LIMIT / 4);
-        update_correction_history(pos, ss, *this, 1061 * bonus / 1024);
+        // The subtree and other threads have updated the shared correction entries
+        // since ss->staticEval was computed, so measure the error against the static
+        // eval corrected with their current values. In excluded searches the
+        // unadjustedStaticEval already holds the corrected value.
+        Value correctedEval = ss->staticEval;
+        if (!excludedMove)
+            correctedEval =
+              to_corrected_static_eval(unadjustedStaticEval, correction_value(*this, pos, ss));
+
+        if ((bestValue > correctedEval) == bool(bestMove))
+        {
+            auto bonus =
+              std::clamp(int(bestValue - correctedEval) * depth * (bestMove ? 12 : 18) / 128,
+                         -CORRECTION_HISTORY_LIMIT / 4, CORRECTION_HISTORY_LIMIT / 4);
+            update_correction_history(pos, ss, *this, 1061 * bonus / 1024);
+        }
     }
 
     // The search is now complete
